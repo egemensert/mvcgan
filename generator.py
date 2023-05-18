@@ -9,7 +9,7 @@ class Generator(nn.Module):
     def __init__(self, siren, z_dim, use_aux=True, input_dim=3, output_dim=4) -> None:
         super().__init__()
         self.z_dim = z_dim
-        self.siren = siren(input_dim=3, output_dim=4, z_dim=self.z_dim, device=None)
+        self.siren = siren(input_dim=input_dim, output_dim=output_dim, z_dim=self.z_dim, device=None)
         self.use_aux = use_aux
 
     def set_device(self, device):
