@@ -75,6 +75,7 @@ class Generator(nn.Module):
         return torch.cat([primary_pitch, primary_yaw], -1), primary_initial_rgb, warp_rgb
 
     def get_camera(self, batch_size, img_size, fov, ray_start, ray_end, num_steps):
+        ''' creates camera distribution to sample from '''
         with torch.no_grad():
             x_ = torch.linspace(-1, 1, img_size, device=self.device)
             y_ = torch.linspace(-1, 1, img_size, device=self.device)
@@ -101,6 +102,7 @@ class Generator(nn.Module):
         return points, depths, origins, origin_norms
     
     def sample_viewpoint(self, points, depths, origins, batch_size, img_size, num_steps):
+        ''' samples a viewpoint from camera distribution '''
         points, depths, ray_directions, ray_origins, pitch, yaw, cam2world = transform_sampled_points(points, depths, origins, 
                                                                                                              h_stddev=0.3, 
                                                                                                              v_stddev=0.155, 
@@ -117,7 +119,7 @@ class Generator(nn.Module):
         return points, depths, ray_directions, pitch, yaw, cam2world
     
     def generate_image(self, outputs, rgb_feats, depths, batch_size, img_size, num_steps, nerf_noise):
-        
+        ''' generates color and intensity maps from camera ray '''
         outputs = outputs.reshape(batch_size, img_size * img_size, num_steps, 4)
         rgb_feats = rgb_feats.reshape(batch_size, img_size * img_size, num_steps, self.siren.hidden_dim)
 
@@ -140,6 +142,7 @@ class Generator(nn.Module):
         return rgb_feat_maps, initial_rgb, depth
     
     def project(self, origins, primary_depths, batch_size, img_size, primary_cam2world, aux_cam2world, origin_norms, aux_rgb_feat_maps, aux_initial_rgb):
+        ''' warps auxiliary image to primary image '''
         primary_points = origins.reshape((batch_size, img_size, img_size, 3)) * primary_depths.reshape((batch_size, img_size, img_size, 1))
         
         primary_points_opaque = torch.ones((batch_size, img_size, img_size, 4), device=self.device)
