@@ -100,4 +100,3 @@ CelebAHQ_min = {
     'last_back': False,
     'eval_last_back': True,
 }
-

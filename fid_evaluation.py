@@ -8,7 +8,7 @@ from torchvision.utils import save_image
 from pytorch_fid import fid_score
 from tqdm import tqdm
 
-import datasets
+from train_utils import get_dataset
 
 def output_images(dataloader, num_imgs, real_dir):
     img_counter = 0
@@ -32,12 +32,13 @@ def output_real_images(dataloader, num_imgs, real_dir):
             save_image(img, os.path.join(real_dir, f'{img_counter:0>5}.jpg'), normalize=True, range=(-1, 1))
             img_counter += 1
 
-def setup_evaluation(dataset_name, generated_dir, save_dir, dataset_path, target_size=128, num_imgs=8000):
+def setup_evaluation(dataset_name, generated_dir, save_dir, dataset_path, target_size=128, num_imgs=512):
     real_dir = os.path.join(save_dir, 'EvalImages', dataset_name + '_real_images_' + str(target_size))
     if not os.path.exists(real_dir):
         os.makedirs(real_dir)
         
-    dataloader, CHANNELS = datasets.get_dataset(dataset_name, output_size=target_size, dataset_path=dataset_path)
+    # dataloader, CHANNELS = datasets.get_dataset(dataset_name, output_size=target_size, dataset_path=dataset_path)
+    dataloader = get_dataset(dataset_path, evaluate=True, metadata={'output_size': target_size, 'batch_size': 32})
     print('outputting real images...')
     output_real_images(dataloader, num_imgs, real_dir)
     print('...done')
@@ -64,7 +65,7 @@ def output_images(alpha, generator, input_metadata, rank, world_size, output_dir
     with torch.no_grad():
         while img_counter < num_imgs:
             z = torch.randn((metadata['batch_size'], generator.z_dim), device=generator.device)
-            generated_imgs, _ = generator(z, alpha=alpha, **metadata)
+            generated_imgs, _, _, _ = generator(z, alpha=alpha, **metadata)
 
             for img in generated_imgs:
                 save_image(img, os.path.join(output_dir, f'{img_counter:0>5}.jpg'), normalize=True, range=(-1, 1))
@@ -74,5 +75,9 @@ def output_images(alpha, generator, input_metadata, rank, world_size, output_dir
     
 def calculate_fid(dataset_name, generated_dir, real_dir, target_size=256):
     # real_dir = os.path.join('EvalImages', dataset_name + '_real_images_' + str(target_size))
+    # fid = fid_score.calculate_fid_given_paths([real_dir, generated_dir], 128, 'cuda', 2048)
+    real_dir = 'eval/EvalImages/CelebAHQ_real_images_64'
+    generated_dir = 'outputs/evaluation/generated'
     fid = fid_score.calculate_fid_given_paths([real_dir, generated_dir], 128, 'cuda', 2048)
-    torch.cuda.empty_cache()
+    torch.cuda.empty_cache
+    return fid

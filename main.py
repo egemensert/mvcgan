@@ -4,7 +4,6 @@ from curriculum import CelebAHQ_min, extract_metadata
 import os
 import math
 import torch
-import datetime
 import fid_evaluation
 from tqdm import tqdm
 from siren import SIREN
@@ -13,19 +12,21 @@ from generator import Generator
 from torch_ema import ExponentialMovingAverage
 from discriminator import CCSEncoderDiscriminator
 
+from datetime import datetime
+
 
 def train(rank):
     CHANNELS = 3
     N_EPOCHS = 3000
     LATENT_DIM = 256
-    MODEL_SAVE_INTERVAL = 5 # 2000
-    SAMPLE_INTERVAL = 5 # 200
-    EVAL_FREQ = 5 # 2000
+    MODEL_SAVE_INTERVAL = 2000
+    SAMPLE_INTERVAL = 200
+    EVAL_FREQ = 2000
     OUTPUT_DIR = 'outputs'
     EVAL_DIR = 'eval'
 
     scaler = torch.cuda.amp.GradScaler()
-    device = torch.device(rank)
+    device = torch.device('cuda')
     metadata = extract_metadata(CelebAHQ_min, 0)
 
 
@@ -61,7 +62,8 @@ def train(rank):
                               dynamic_ncols=True)
     total_progress_bar.update(discriminator.epoch)
     interior_step_bar = tqdm(dynamic_ncols=True)
-
+    
+    dataloader = None
     for epoch in range(N_EPOCHS):
         total_progress_bar.update(1)
         metadata = extract_metadata(CelebAHQ_min, discriminator.step)
@@ -69,8 +71,21 @@ def train(rank):
         tu.set_generator_opt_params(optimizer_G, metadata)
         tu.set_discriminator_opt_params(optimizer_D, metadata)
 
-        step_last_upsample = 0
-        for i in range(5):
+
+        if not dataloader or dataloader.batch_size != metadata['batch_size']:
+            dataloader, step_next_upsample, step_last_upsample = tu.get_dataset(
+                'CelebAMask-HQ/CelebA-HQ-img/*.jpg',
+                CelebAHQ_min,
+                metadata,
+                discriminator.step
+            )
+
+            interior_step_bar.reset(total=(step_next_upsample - step_last_upsample))
+            interior_step_bar.set_description(f"Progress to next stage")
+            interior_step_bar.update((discriminator.step - step_last_upsample))
+
+        # sampler.set_epoch(epoch+1)
+        for i, (imgs, _) in enumerate(dataloader):
             if discriminator.step > 0 and discriminator.step % MODEL_SAVE_INTERVAL == 0 and rank == 0:
                 now = datetime.now()
                 now = now.strftime("%d--%H:%M--")
@@ -84,11 +99,6 @@ def train(rank):
             BS = metadata['batch_size']
             W_H = metadata['img_size']
 
-            imgs = torch.rand(BS, 
-                            CHANNELS,
-                            W_H,
-                            W_H)
-            
             metadata = extract_metadata(CelebAHQ_min, discriminator.step)
 
             # if dataloader.batch_size != metadata['batch_size']: break
@@ -195,60 +205,60 @@ def train(rank):
             ema.update(generator.parameters())
             ema2.update(generator.parameters())
         
-        if rank == 0:
-            interior_step_bar.update(1)
-            if i%10 == 0:
-                tqdm.write(f"[Experiment: {OUTPUT_DIR}] [GPU: {os.environ['CUDA_VISIBLE_DEVICES']}] [Epoch: {discriminator.epoch}/{N_EPOCHS}] [D loss: {loss_D.item()}] [G loss: {loss_G.item()}] [Step: {discriminator.step}] [Alpha: {alpha:.2f}] [Img Size: {metadata['output_size']}] [Batch Size: {metadata['batch_size']}] [TopK: {topk_num}] [Scale: {scaler.get_scale()}]")
+            if rank == 0:
+                interior_step_bar.update(1)
+                if i%10 == 0:
+                    tqdm.write(f"[Experiment: {OUTPUT_DIR}] [Epoch: {discriminator.epoch}/{N_EPOCHS}] [D loss: {loss_D.item()}] [G loss: {loss_G.item()}] [Step: {discriminator.step}] [Alpha: {alpha:.2f}] [Img Size: {metadata['output_size']}] [Batch Size: {metadata['batch_size']}] [TopK: {topk_num}] [Scale: {scaler.get_scale()}]")
 
-            if discriminator.step % SAMPLE_INTERVAL == 0:
-                
-                generator.eval()
-                tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'fixed', 0)
-                tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'tilted', 0, h_mean=0.5)
+                if discriminator.step % SAMPLE_INTERVAL == 0:
+                    
+                    generator.eval()
+                    tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'fixed', 0)
+                    tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'tilted', 0, h_mean=0.5)
 
+                    ema.store(generator.parameters())
+                    ema.copy_to(generator.parameters())
+                    generator.eval()
+                    tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'fixed_ema', 0)
+                    tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'tilted_ema', 0, h_mean=0.5)
+
+                    tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'random', 0, psi=0.7, random=True)
+                    ema.restore(generator.parameters())
+
+
+                if discriminator.step % SAMPLE_INTERVAL == 0:
+                    torch.save(ema.state_dict(), os.path.join(OUTPUT_DIR, 'ema.pth'))
+                    torch.save(ema2.state_dict(), os.path.join(OUTPUT_DIR, 'ema2.pth'))
+                    torch.save(generator, os.path.join(OUTPUT_DIR, 'generator.pth'))
+                    torch.save(discriminator, os.path.join(OUTPUT_DIR, 'discriminator.pth'))
+                    torch.save(optimizer_G.state_dict(), os.path.join(OUTPUT_DIR, 'optimizer_G.pth'))
+                    torch.save(optimizer_D.state_dict(), os.path.join(OUTPUT_DIR, 'optimizer_D.pth'))
+                    torch.save(scaler.state_dict(), os.path.join(OUTPUT_DIR, 'scaler.pth'))
+                    torch.save(losses_G, os.path.join(OUTPUT_DIR, 'generator.losses'))
+                    torch.save(losses_D, os.path.join(OUTPUT_DIR, 'discriminator.losses'))
+
+            if EVAL_FREQ > 0 and (discriminator.step + 1) % EVAL_FREQ == 0:
+                generated_dir = os.path.join(OUTPUT_DIR, 'evaluation/generated')
+
+                if rank == 0:
+                    fid_evaluation.setup_evaluation('CelebAHQ', generated_dir, EVAL_DIR, dataset_path='CelebAMask-HQ/CelebA-HQ-img/*.jpg', target_size=metadata['output_size'])
+                    
                 ema.store(generator.parameters())
                 ema.copy_to(generator.parameters())
                 generator.eval()
-                tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'fixed_ema', 0)
-                tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'tilted_ema', 0, h_mean=0.5)
-
-                tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'random', 0, psi=0.7, random=True)
+                fid_evaluation.output_images(alpha, generator, metadata, rank, 1, generated_dir)
                 ema.restore(generator.parameters())
+                if rank == 0:
+                    fid = fid_evaluation.calculate_fid('CelebAHQ', generated_dir, EVAL_DIR, target_size=metadata['output_size'])
+                    with open(os.path.join(OUTPUT_DIR, f'fid.txt'), 'a') as f:
+                        f.write(f'\n{discriminator.step}:{fid}')
 
+                torch.cuda.empty_cache()
 
-            if discriminator.step % SAMPLE_INTERVAL == 0:
-                torch.save(ema.state_dict(), os.path.join(OUTPUT_DIR, 'ema.pth'))
-                torch.save(ema2.state_dict(), os.path.join(OUTPUT_DIR, 'ema2.pth'))
-                torch.save(generator, os.path.join(OUTPUT_DIR, 'generator.pth'))
-                torch.save(discriminator, os.path.join(OUTPUT_DIR, 'discriminator.pth'))
-                torch.save(optimizer_G.state_dict(), os.path.join(OUTPUT_DIR, 'optimizer_G.pth'))
-                torch.save(optimizer_D.state_dict(), os.path.join(OUTPUT_DIR, 'optimizer_D.pth'))
-                torch.save(scaler.state_dict(), os.path.join(OUTPUT_DIR, 'scaler.pth'))
-                torch.save(losses_G, os.path.join(OUTPUT_DIR, 'generator.losses'))
-                torch.save(losses_D, os.path.join(OUTPUT_DIR, 'discriminator.losses'))
-
-        if EVAL_FREQ > 0 and (discriminator.step + 1) % EVAL_FREQ == 0:
-            generated_dir = os.path.join(OUTPUT_DIR, 'evaluation/generated')
-
-            if rank == 0:
-                fid_evaluation.setup_evaluation(metadata['dataset'], generated_dir, EVAL_DIR, dataset_path=metadata['dataset_path'], target_size=metadata['output_size'])
-                
-            ema.store(generator.parameters())
-            ema.copy_to(generator.parameters())
-            generator.eval()
-            fid_evaluation.output_images(alpha, generator, metadata, rank, 1, generated_dir)
-            ema.restore(generator.parameters())
-            if rank == 0:
-                fid = fid_evaluation.calculate_fid(metadata['dataset'], generated_dir, EVAL_DIR, target_size=metadata['output_size'])
-                with open(os.path.join(OUTPUT_DIR, f'fid.txt'), 'a') as f:
-                    f.write(f'\n{discriminator.step}:{fid}')
-
-            torch.cuda.empty_cache()
-
-        discriminator.step += 1
-        generator.step += 1
-    discriminator.epoch += 1
-    generator.epoch += 1
+            discriminator.step += 1
+            generator.step += 1
+        discriminator.epoch += 1
+        generator.epoch += 1
 
 if __name__ == '__main__':
     train(0)
