@@ -90,7 +90,7 @@ def get_dataset(dataset_path, curriculum=None, metadata=None, step=None, evaluat
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=metadata['batch_size'],
-        shuffle=False,
+        shuffle=not evaluate,
         drop_last=True,
         pin_memory=True,
         num_workers=4,
