@@ -20,7 +20,7 @@ class Generator(nn.Module):
         self.siren.device = device
         # self.generate_avg_frequencies()
 
-    def forward(self, z, img_size, output_size, nerf_noise=1, alpha=1, fov=12, ray_start=0.88, ray_end=1.12, num_steps=16, max_mixup_ratio=0.1):
+    def forward(self, z, img_size, output_size, nerf_noise=1, alpha=1, fov=12, ray_start=0.88, ray_end=1.12, num_steps=16, max_mixup_ratio=0.1, **kwargs):
         # alpha = min(1, (discriminator.step - step_last_upsample) / (metadata['fade_steps']))
         # nerf noise = max(0, 1. - discriminator.step/5000.)
 

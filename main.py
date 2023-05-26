@@ -98,6 +98,8 @@ def train(rank):
                         gen_imgs.append(g_imgs)
                         gen_positions.append(g_pos)
 
+                    gen_imgs = torch.cat(gen_imgs, axis=0)
+                    gen_positions = torch.cat(gen_positions, axis=0)
                 assert real_imgs.shape == gen_imgs.shape
 
                 real_imgs.requires_grad = True
@@ -122,14 +124,14 @@ def train(rank):
                     identity_penalty=0
 
                 loss_D = torch.nn.functional.softplus(g_preds).mean() + torch.nn.functional.softplus(-r_preds).mean() + grad_penalty + identity_penalty
-                losses_D.append(losses_D.item())
+                losses_D.append(loss_D.item())
 
 
             optimizer_D.zero_grad()
             scaler.scale(loss_D).backward()
             scaler.unscale_(optimizer_D)          
             torch.nn.utils.clip_grad_norm_(discriminator.parameters(), metadata['grad_clip'])
-            scaler.step()
+            scaler.step(optimizer_D)
             print('Discriminator Loss:', losses_D)
 
             # TRAIN GENERATOR
@@ -138,7 +140,7 @@ def train(rank):
             split_bs = BS // metadata['batch_split']
             for split in range(split_bs):
                 with torch.cuda.amp.autocast():
-                    sub_z = z[split * sub_z:(split+1) * sub_z]
+                    sub_z = z[split * split_bs:(split+1) * split_bs]
                     gen_imgs, gen_positions, gen_init_imgs, gen_warp_imgs= generator(sub_z, alpha=alpha, **metadata)
                     g_preds, g_pred_latent, g_pred_position = discriminator(gen_imgs, alpha, **metadata)
                     topk_percentage = max(0.99 ** (discriminator.step/metadata['topk_interval']), metadata['topk_v']) if 'topk_interval' in metadata and 'topk_v' in metadata else 1
