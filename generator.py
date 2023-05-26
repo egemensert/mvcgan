@@ -163,3 +163,4 @@ class Generator(nn.Module):
         warp_rgb_feat_maps = F.grid_sample(aux_rgb_feat_maps, primary_grid_in_aux, align_corners=True) 
         warp_rgb = F.grid_sample(aux_initial_rgb, primary_grid_in_aux, align_corners=True) 
         return warp_rgb_feat_maps, warp_rgb
+

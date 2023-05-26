@@ -1,0 +1,6 @@
+kornia==0.6.8
+matplotlib==2.2.3
+numpy==1.19.2
+torch==1.10.2
+torch_ema==0.3
+tqdm==4.45.0

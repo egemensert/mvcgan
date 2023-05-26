@@ -5,11 +5,11 @@ class SSIM(nn.Module):
     def __init__(self) -> None:
         super(SSIM, self).__init__()
 
-        self.mean_x_pool = nn.AdaptiveAvgPool2d(3)
-        self.mean_y_pool = nn.AdaptiveAvgPool2d(3)
-        self.var_x_pool = nn.AdaptiveAvgPool2d(3)
-        self.var_y_pool = nn.AdaptiveAvgPool2d(3)
-        self.cov_xy_pool = nn.AdaptiveAvgPool2d(3)
+        self.mean_x_pool = nn.AvgPool2d(3, 1)
+        self.mean_y_pool = nn.AvgPool2d(3, 1)
+        self.var_x_pool = nn.AvgPool2d(3, 1)
+        self.var_y_pool = nn.AvgPool2d(3, 1)
+        self.cov_xy_pool = nn.AvgPool2d(3, 1)
 
         self.reflection = nn.ReflectionPad2d(1)
 

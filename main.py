@@ -71,6 +71,7 @@ def train(rank):
                             W_H,
                             W_H)
             
+            print(imgs.size())
             metadata = extract_metadata(CelebAHQ_min, discriminator.step)
 
             # if dataloader.batch_size != metadata['batch_size']: break
@@ -92,6 +93,7 @@ def train(rank):
 
                     for split in range(metadata['batch_split']):
                         sub_z = z[split * split_bs:(split+1) * split_bs]
+                        print('Sub_z:', sub_z.size())
                         g_imgs, g_pos, _, _ = generator(sub_z, alpha=alpha, **metadata)
 
 
@@ -117,6 +119,8 @@ def train(rank):
 
                 g_preds, g_pred_latent, g_pred_position = discriminator(gen_imgs, alpha, **metadata)
                 if metadata['z_lambda'] > 0 or metadata['pos_lambda'] > 0:
+                    print('generator_pred_latent:', g_pred_latent.size())
+                    print('generator_z:', z.size())
                     latent_penalty = torch.nn.MSELoss()(g_pred_latent, z) * metadata['z_lambda']
                     position_penalty = torch.nn.MSELoss()(g_pred_position, gen_positions) * metadata['pos_lambda']
                     identity_penalty = latent_penalty + position_penalty
@@ -137,10 +141,12 @@ def train(rank):
             # TRAIN GENERATOR
 
             z = tu.z_sampler((BS, LATENT_DIM), device=device)
+            print('second sample:', z.size())
             split_bs = BS // metadata['batch_split']
-            for split in range(split_bs):
+            for split in range(metadata['batch_split']):
                 with torch.cuda.amp.autocast():
                     sub_z = z[split * split_bs:(split+1) * split_bs]
+                    print('sub_z size:', sub_z.size())
                     gen_imgs, gen_positions, gen_init_imgs, gen_warp_imgs= generator(sub_z, alpha=alpha, **metadata)
                     g_preds, g_pred_latent, g_pred_position = discriminator(gen_imgs, alpha, **metadata)
                     topk_percentage = max(0.99 ** (discriminator.step/metadata['topk_interval']), metadata['topk_v']) if 'topk_interval' in metadata and 'topk_v' in metadata else 1
@@ -148,7 +154,9 @@ def train(rank):
                     
                     g_preds = torch.topk(g_preds, topk_num, dim=0).values
                     if metadata['z_lambda'] > 0 or metadata['pos_lambda'] > 0:
-                        latent_penalty = torch.nn.MSELoss()(g_pred_latent, z) * metadata['z_lambda']
+                        print('generator_pred_latent:', g_pred_latent.size())
+                        print('generator_z:', sub_z.size())
+                        latent_penalty = torch.nn.MSELoss()(g_pred_latent, sub_z) * metadata['z_lambda']
                         position_penalty = torch.nn.MSELoss()(g_pred_position, gen_positions) * metadata['pos_lambda']
                         identity_penalty = latent_penalty + position_penalty
                     else:
@@ -158,9 +166,15 @@ def train(rank):
                     pred = (gen_warp_imgs + 1) / 2
                     target = (gen_init_imgs + 1) / 2
                     abs_diff = torch.abs(target - pred)
+                    print('abs_diff:', abs_diff.size())
                     l1_loss = abs_diff.mean(1, True)
-
-                    ssim_loss = ssim(pred, target).mean(1, True)
+                    
+                    print('pred:', pred.size())
+                    print('target:', target.size())
+                    ss = ssim(pred, target)
+                    print('SSIM before red:', ss.size())
+                    ssim_loss = ss.mean(1, True)
+                    print('SSIM:', ssim_loss.size(), 'L1:',l1_loss.size())
                     reprojection_loss = 0.85 * ssim_loss + 0.15 * l1_loss
                     reprojection_loss = reprojection_loss.mean() * metadata['reproj_lambda']
 
@@ -177,8 +191,8 @@ def train(rank):
 
             ema.update(generator.parameters())
             ema2.update(generator.parameters())
-        
-        break
+        print()
+        # break
 
 if __name__ == '__main__':
     train(0)
