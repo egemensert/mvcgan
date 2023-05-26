@@ -1,9 +1,4 @@
 kornia==0.6.8
-matplotlib==2.2.3
-numpy==1.19.2
-Pillow==9.5.0
 pytorch_fid==0.3.0
-torch==1.10.2
 torch_ema==0.3
-torchvision==0.11.3
 tqdm==4.45.0
