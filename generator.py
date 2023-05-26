@@ -3,6 +3,8 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+
+from decoder import Decoder
 from volumetric_rendering import transform_sampled_points, rgb_feat_integration
 
 class Generator(nn.Module):
@@ -10,6 +12,7 @@ class Generator(nn.Module):
         super().__init__()
         self.z_dim = z_dim
         self.siren = siren(input_dim=input_dim, output_dim=output_dim, z_dim=self.z_dim, device=None)
+        self.decoder = Decoder()
         self.use_aux = use_aux
 
     def set_device(self, device):
@@ -68,11 +71,9 @@ class Generator(nn.Module):
 
 
         # RETURN THESE AFTER IMPLEMENTING 2D DECODER
-        # pixels = self.decoder(codes, rgb_feat_maps, img_size, output_size, alpha)
-        # return pixels, torch.cat([primary_pitch, primary_yaw], -1), primary_initial_rgb, warp_rgb
-
-        # THIS RETURN IS FOR TESTING
-        return torch.cat([primary_pitch, primary_yaw], -1), primary_initial_rgb, warp_rgb
+        
+        im = self.decoder(codes, rgb_feat_maps, output_size, alpha)
+        return im, torch.cat([primary_pitch, primary_yaw], -1), primary_initial_rgb, warp_rgb
 
     def get_camera(self, batch_size, img_size, fov, ray_start, ray_end, num_steps):
         ''' creates camera distribution to sample from '''

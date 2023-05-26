@@ -2,10 +2,11 @@
 
 Logs:
 1. Implemented SIREN network
-2. Implemented Generator without progressive 2D decoder
+2. Implemented Generator
+3. Implemented 2D Decoder
 
 TODO (Refer to [paper's](https://arxiv.org/pdf/2204.06307.pdf) implementation details):
-* Implement progressive 2D decoder & the discriminator
+* Implement discriminator
 * Implement training loop
 
 Notes:
