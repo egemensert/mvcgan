@@ -10,6 +10,8 @@ from volumetric_rendering import transform_sampled_points, rgb_feat_integration
 class Generator(nn.Module):
     def __init__(self, siren, z_dim, use_aux=True, input_dim=3, output_dim=4) -> None:
         super().__init__()
+        self.step = 0
+        self.epoch = 0
         self.z_dim = z_dim
         self.siren = siren(input_dim=input_dim, output_dim=output_dim, z_dim=self.z_dim, device=None)
         self.decoder = Decoder()
@@ -163,4 +165,5 @@ class Generator(nn.Module):
         warp_rgb_feat_maps = F.grid_sample(aux_rgb_feat_maps, primary_grid_in_aux, align_corners=True) 
         warp_rgb = F.grid_sample(aux_initial_rgb, primary_grid_in_aux, align_corners=True) 
         return warp_rgb_feat_maps, warp_rgb
+
 

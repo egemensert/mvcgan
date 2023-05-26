@@ -1,8 +1,11 @@
 import train_utils as tu
 from curriculum import CelebAHQ_min, extract_metadata
 
+import os
 import math
 import torch
+import datetime
+import fid_evaluation
 from tqdm import tqdm
 from siren import SIREN
 from loss_layers import SSIM
@@ -15,13 +18,18 @@ def train(rank):
     CHANNELS = 3
     N_EPOCHS = 3000
     LATENT_DIM = 256
+    MODEL_SAVE_INTERVAL = 5 # 2000
+    SAMPLE_INTERVAL = 5 # 200
+    EVAL_FREQ = 5 # 2000
+    OUTPUT_DIR = 'outputs'
+    EVAL_DIR = 'eval'
 
     scaler = torch.cuda.amp.GradScaler()
     device = torch.device(rank)
     metadata = extract_metadata(CelebAHQ_min, 0)
 
 
-    z = tu.z_sampler((20, 256), device='cpu')
+    fixed_z = tu.z_sampler((20, 256), device='cpu')
     
     generator = Generator(SIREN, z_dim=LATENT_DIM, use_aux=True).to(device)
     discriminator = CCSEncoderDiscriminator().to(device)
@@ -63,6 +71,16 @@ def train(rank):
 
         step_last_upsample = 0
         for i in range(5):
+            if discriminator.step > 0 and discriminator.step % MODEL_SAVE_INTERVAL == 0 and rank == 0:
+                now = datetime.now()
+                now = now.strftime("%d--%H:%M--")
+                torch.save(ema.state_dict(), os.path.join(OUTPUT_DIR, '{}_ema.pth'.format(discriminator.step)))
+                torch.save(ema2.state_dict(), os.path.join(OUTPUT_DIR, '{}_ema2.pth'.format(discriminator.step)))
+                torch.save(generator, os.path.join(OUTPUT_DIR, '{}_generator.pth'.format(discriminator.step)))
+                torch.save(discriminator, os.path.join(OUTPUT_DIR, '{}_discriminator.pth'.format(discriminator.step)))
+                torch.save(optimizer_G.state_dict(), os.path.join(OUTPUT_DIR, '{}_optimizer_G.pth'.format(discriminator.step)))
+                torch.save(optimizer_D.state_dict(), os.path.join(OUTPUT_DIR, '{}_optimizer_D.pth'.format(discriminator.step)))
+                torch.save(scaler.state_dict(), os.path.join(OUTPUT_DIR, '{}_scaler.pth'.format(discriminator.step)))
             BS = metadata['batch_size']
             W_H = metadata['img_size']
 
@@ -71,7 +89,6 @@ def train(rank):
                             W_H,
                             W_H)
             
-            print(imgs.size())
             metadata = extract_metadata(CelebAHQ_min, discriminator.step)
 
             # if dataloader.batch_size != metadata['batch_size']: break
@@ -93,7 +110,6 @@ def train(rank):
 
                     for split in range(metadata['batch_split']):
                         sub_z = z[split * split_bs:(split+1) * split_bs]
-                        print('Sub_z:', sub_z.size())
                         g_imgs, g_pos, _, _ = generator(sub_z, alpha=alpha, **metadata)
 
 
@@ -119,8 +135,6 @@ def train(rank):
 
                 g_preds, g_pred_latent, g_pred_position = discriminator(gen_imgs, alpha, **metadata)
                 if metadata['z_lambda'] > 0 or metadata['pos_lambda'] > 0:
-                    print('generator_pred_latent:', g_pred_latent.size())
-                    print('generator_z:', z.size())
                     latent_penalty = torch.nn.MSELoss()(g_pred_latent, z) * metadata['z_lambda']
                     position_penalty = torch.nn.MSELoss()(g_pred_position, gen_positions) * metadata['pos_lambda']
                     identity_penalty = latent_penalty + position_penalty
@@ -136,17 +150,14 @@ def train(rank):
             scaler.unscale_(optimizer_D)          
             torch.nn.utils.clip_grad_norm_(discriminator.parameters(), metadata['grad_clip'])
             scaler.step(optimizer_D)
-            print('Discriminator Loss:', losses_D)
 
             # TRAIN GENERATOR
 
             z = tu.z_sampler((BS, LATENT_DIM), device=device)
-            print('second sample:', z.size())
             split_bs = BS // metadata['batch_split']
             for split in range(metadata['batch_split']):
                 with torch.cuda.amp.autocast():
                     sub_z = z[split * split_bs:(split+1) * split_bs]
-                    print('sub_z size:', sub_z.size())
                     gen_imgs, gen_positions, gen_init_imgs, gen_warp_imgs= generator(sub_z, alpha=alpha, **metadata)
                     g_preds, g_pred_latent, g_pred_position = discriminator(gen_imgs, alpha, **metadata)
                     topk_percentage = max(0.99 ** (discriminator.step/metadata['topk_interval']), metadata['topk_v']) if 'topk_interval' in metadata and 'topk_v' in metadata else 1
@@ -154,8 +165,6 @@ def train(rank):
                     
                     g_preds = torch.topk(g_preds, topk_num, dim=0).values
                     if metadata['z_lambda'] > 0 or metadata['pos_lambda'] > 0:
-                        print('generator_pred_latent:', g_pred_latent.size())
-                        print('generator_z:', sub_z.size())
                         latent_penalty = torch.nn.MSELoss()(g_pred_latent, sub_z) * metadata['z_lambda']
                         position_penalty = torch.nn.MSELoss()(g_pred_position, gen_positions) * metadata['pos_lambda']
                         identity_penalty = latent_penalty + position_penalty
@@ -166,21 +175,15 @@ def train(rank):
                     pred = (gen_warp_imgs + 1) / 2
                     target = (gen_init_imgs + 1) / 2
                     abs_diff = torch.abs(target - pred)
-                    print('abs_diff:', abs_diff.size())
                     l1_loss = abs_diff.mean(1, True)
-                    
-                    print('pred:', pred.size())
-                    print('target:', target.size())
+ 
                     ss = ssim(pred, target)
-                    print('SSIM before red:', ss.size())
                     ssim_loss = ss.mean(1, True)
-                    print('SSIM:', ssim_loss.size(), 'L1:',l1_loss.size())
                     reprojection_loss = 0.85 * ssim_loss + 0.15 * l1_loss
                     reprojection_loss = reprojection_loss.mean() * metadata['reproj_lambda']
 
                     loss_G = torch.nn.functional.softplus(-g_preds).mean() + identity_penalty + reprojection_loss
                     losses_G.append(loss_G.item())
-                    print('Generator Loss:', losses_G)
             
                 scaler.scale(loss_G).backward()
             scaler.unscale_(optimizer_G)
@@ -191,8 +194,61 @@ def train(rank):
 
             ema.update(generator.parameters())
             ema2.update(generator.parameters())
-        print()
-        # break
+        
+        if rank == 0:
+            interior_step_bar.update(1)
+            if i%10 == 0:
+                tqdm.write(f"[Experiment: {OUTPUT_DIR}] [GPU: {os.environ['CUDA_VISIBLE_DEVICES']}] [Epoch: {discriminator.epoch}/{N_EPOCHS}] [D loss: {loss_D.item()}] [G loss: {loss_G.item()}] [Step: {discriminator.step}] [Alpha: {alpha:.2f}] [Img Size: {metadata['output_size']}] [Batch Size: {metadata['batch_size']}] [TopK: {topk_num}] [Scale: {scaler.get_scale()}]")
+
+            if discriminator.step % SAMPLE_INTERVAL == 0:
+                
+                generator.eval()
+                tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'fixed', 0)
+                tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'tilted', 0, h_mean=0.5)
+
+                ema.store(generator.parameters())
+                ema.copy_to(generator.parameters())
+                generator.eval()
+                tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'fixed_ema', 0)
+                tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'tilted_ema', 0, h_mean=0.5)
+
+                tu.ablation(generator, fixed_z, device, alpha, discriminator.step, OUTPUT_DIR, metadata, 'random', 0, psi=0.7, random=True)
+                ema.restore(generator.parameters())
+
+
+            if discriminator.step % SAMPLE_INTERVAL == 0:
+                torch.save(ema.state_dict(), os.path.join(OUTPUT_DIR, 'ema.pth'))
+                torch.save(ema2.state_dict(), os.path.join(OUTPUT_DIR, 'ema2.pth'))
+                torch.save(generator, os.path.join(OUTPUT_DIR, 'generator.pth'))
+                torch.save(discriminator, os.path.join(OUTPUT_DIR, 'discriminator.pth'))
+                torch.save(optimizer_G.state_dict(), os.path.join(OUTPUT_DIR, 'optimizer_G.pth'))
+                torch.save(optimizer_D.state_dict(), os.path.join(OUTPUT_DIR, 'optimizer_D.pth'))
+                torch.save(scaler.state_dict(), os.path.join(OUTPUT_DIR, 'scaler.pth'))
+                torch.save(losses_G, os.path.join(OUTPUT_DIR, 'generator.losses'))
+                torch.save(losses_D, os.path.join(OUTPUT_DIR, 'discriminator.losses'))
+
+        if EVAL_FREQ > 0 and (discriminator.step + 1) % EVAL_FREQ == 0:
+            generated_dir = os.path.join(OUTPUT_DIR, 'evaluation/generated')
+
+            if rank == 0:
+                fid_evaluation.setup_evaluation(metadata['dataset'], generated_dir, EVAL_DIR, dataset_path=metadata['dataset_path'], target_size=metadata['output_size'])
+                
+            ema.store(generator.parameters())
+            ema.copy_to(generator.parameters())
+            generator.eval()
+            fid_evaluation.output_images(alpha, generator, metadata, rank, 1, generated_dir)
+            ema.restore(generator.parameters())
+            if rank == 0:
+                fid = fid_evaluation.calculate_fid(metadata['dataset'], generated_dir, EVAL_DIR, target_size=metadata['output_size'])
+                with open(os.path.join(OUTPUT_DIR, f'fid.txt'), 'a') as f:
+                    f.write(f'\n{discriminator.step}:{fid}')
+
+            torch.cuda.empty_cache()
+
+        discriminator.step += 1
+        generator.step += 1
+    discriminator.epoch += 1
+    generator.epoch += 1
 
 if __name__ == '__main__':
     train(0)
