@@ -1,0 +1,19 @@
+Multi-View Consistent Generative Adversarial Networks for 3D-aware Image Synthesis
+
+https://arxiv.org/abs/2204.06307
+
+We want to reproduce the minimum FID score (11.8) for 256*256 CELEBA-HQ dataset as it was specified in table 1 
+
+—— version 1 submission ——
+
+We update our goal as reaching to 256x256 training stage on our training loop and minimize FID score as much as we can. 
+We now see that our goal has been set as too high as training MVCGAN requires 42 V100 GPU days [1]. We neither have the time
+or budget to train the model for that long. 
+
+So far we have trained the model on an A100 GPU using Paperspace Gradient. Traning for this much costs us $30.65. We intend to
+solve scaling related bug we have encountered during training by limiting shrinkage of gradient scaler. Then keep on training
+as long as our budget allows.
+
+
+
+Retrieved from https://universome.github.io/assets/projects/epigraf/epigraf.pdf Table 1.
