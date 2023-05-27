@@ -101,7 +101,8 @@ def train(rank):
 
             metadata = extract_metadata(CelebAHQ_min, discriminator.step)
 
-            # if dataloader.batch_size != metadata['batch_size']: break
+            if scaler.get_scale() < 1:
+                scaler.update(1.)
 
             generator.train()
             discriminator.train()
