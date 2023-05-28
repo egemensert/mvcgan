@@ -10,8 +10,7 @@ We update our goal as reaching to 256x256 training stage on our training loop an
 We now see that our goal has been set as too high as training MVCGAN requires 42 V100 GPU days [1]. We neither have the time
 or budget to train the model for that long. 
 
-So far we have trained the model on an A100 GPU using Paperspace Gradient. Traning for this much costs us $30.65. We intend to
-solve scaling related bug we have encountered during training by limiting shrinkage of gradient scaler. Then keep on training
+So far we have trained the model on an A100 GPU using Paperspace Gradient. Traning for this much costs us $30.65. Our best FID score is 72.9 and we intend to keep on training
 as long as our budget allows.
 
 

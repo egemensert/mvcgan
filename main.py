@@ -15,7 +15,7 @@ from discriminator import CCSEncoderDiscriminator
 from datetime import datetime
 
 
-def train(rank):
+def train(rank, iteration=None):
     CHANNELS = 3
     N_EPOCHS = 3000
     LATENT_DIM = 256
@@ -27,30 +27,49 @@ def train(rank):
 
     scaler = torch.cuda.amp.GradScaler()
     device = torch.device('cuda')
-    metadata = extract_metadata(CelebAHQ_min, 0)
+    metadata = extract_metadata(CelebAHQ_min, 0 if iteration == None else iteration)
 
 
     fixed_z = tu.z_sampler((20, 256), device='cpu')
+    ssim = SSIM().to(device)
     
-    generator = Generator(SIREN, z_dim=LATENT_DIM, use_aux=True).to(device)
-    discriminator = CCSEncoderDiscriminator().to(device)
 
+
+    if iteration == None:
+        generator = Generator(SIREN, z_dim=LATENT_DIM, use_aux=True).to(device)
+        discriminator = CCSEncoderDiscriminator().to(device)
+
+        
+    else:
+        print('Recovering model states.')
+        generator = torch.load(os.path.join(OUTPUT_DIR, 'generator.pth'), map_location=device)
+        discriminator = torch.load(os.path.join(OUTPUT_DIR, 'discriminator.pth'), map_location=device)
+        
+    
     ema = ExponentialMovingAverage(generator.parameters(), decay=0.999)
     ema2 = ExponentialMovingAverage(generator.parameters(), decay=0.9999)
-
-    ssim = SSIM().to(device)
-
-    # use generator_ddp 
+    
+    if iteration != None:
+        ema.load_state_dict(torch.load(os.path.join(OUTPUT_DIR, 'ema.pth'), map_location=device))
+        ema2.load_state_dict(torch.load(os.path.join(OUTPUT_DIR, 'ema2.pth'), map_location=device))
+    
     optimizer_G = torch.optim.Adam(generator.parameters(), 
                                    lr=metadata['gen_lr'], 
                                    betas=metadata['betas'], 
                                    weight_decay=metadata['weight_decay'])
-    
+
     optimizer_D = torch.optim.Adam(discriminator.parameters(),
                                     lr=metadata['disc_lr'], 
                                     betas=metadata['betas'],
                                     weight_decay=metadata['weight_decay'])
     
+    if iteration != None:
+        print('Recovering optimizer states.')
+        optimizer_G.load_state_dict(torch.load(os.path.join(OUTPUT_DIR, 'optimizer_G.pth')))
+        optimizer_D.load_state_dict(torch.load(os.path.join(OUTPUT_DIR, 'optimizer_D.pth')))
+        scaler.load_state_dict(torch.load(os.path.join(OUTPUT_DIR, 'scaler.pth')))
+    
+        
     losses_G = []
     losses_D = []
 
@@ -70,7 +89,6 @@ def train(rank):
 
         tu.set_generator_opt_params(optimizer_G, metadata)
         tu.set_discriminator_opt_params(optimizer_D, metadata)
-
 
         if not dataloader or dataloader.batch_size != metadata['batch_size']:
             dataloader, step_next_upsample, step_last_upsample = tu.get_dataset(
@@ -100,10 +118,12 @@ def train(rank):
             W_H = metadata['img_size']
 
             metadata = extract_metadata(CelebAHQ_min, discriminator.step)
-
+            if dataloader.batch_size != metadata['batch_size']: 
+                print('have batch inconsistency. breaking.')
+                break
             if scaler.get_scale() < 1:
                 scaler.update(1.)
-
+            # if dataloader.batch_size != metadata['batch_size']: break
             generator.train()
             discriminator.train()
             alpha = min(1, (discriminator.step - step_last_upsample) / (metadata['fade_steps']))
@@ -129,8 +149,9 @@ def train(rank):
 
                     gen_imgs = torch.cat(gen_imgs, axis=0)
                     gen_positions = torch.cat(gen_positions, axis=0)
-                assert real_imgs.shape == gen_imgs.shape
-
+                    
+                
+                assert real_imgs.shape == gen_imgs.shape, f'Real: {real_imgs.size()}, Gen: {gen_imgs.size()}'
                 real_imgs.requires_grad = True
                 r_preds, _, _ = discriminator(real_imgs, alpha, **metadata)
 
