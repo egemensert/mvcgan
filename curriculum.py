@@ -2,12 +2,11 @@ import math
 
 def next_upsample_step(curriculum, current_step):
     # Return the epoch when it will next upsample
-    current_metadata = extract_metadata(curriculum, current_step)
-    current_size = current_metadata['output_size']
-    for curriculum_step in sorted([cs for cs in curriculum.keys() if type(cs) == int]):
-        if curriculum_step > current_step and curriculum[curriculum_step].get('output_size', 1024) > current_size:
-            return curriculum_step
-    return float('Inf')
+    steps = list(filter(lambda x: type(x) == int, curriculum.keys()))
+    for prev, next in zip(steps[:-1], steps[1:]):
+        if prev <= current_step < next:
+            return next
+    return 100000    
 
 def last_upsample_step(curriculum, current_step):
     # Returns the start epoch of the current stage, i.e. the epoch
@@ -100,3 +99,10 @@ CelebAHQ_min = {
     'last_back': False,
     'eval_last_back': True,
 }
+
+
+if __name__ == '__main__':
+    for step in [0, 24499, 25000, 49999, 50000, 99999, 100000]:
+        next_ = next_upsample_step(CelebAHQ_min, step)
+        last_ = last_upsample_step(CelebAHQ_min, step)
+        print(f'[Step {step}] Next: {next_}, Last: {last_}')
