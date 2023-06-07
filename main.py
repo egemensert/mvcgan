@@ -15,7 +15,7 @@ from discriminator import CCSEncoderDiscriminator
 from datetime import datetime
 
 
-def train(rank, iteration=None):
+def train(rank, iteration=None, device='cuda'):
     CHANNELS = 3
     N_EPOCHS = 3000
     LATENT_DIM = 256
@@ -26,7 +26,7 @@ def train(rank, iteration=None):
     EVAL_DIR = 'eval'
 
     scaler = torch.cuda.amp.GradScaler()
-    device = torch.device('cuda')
+    device = torch.device(device)
     metadata = extract_metadata(CelebAHQ_min, 0 if iteration == None else iteration)
 
 

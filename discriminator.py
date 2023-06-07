@@ -1,3 +1,9 @@
+"""
+ As the discriminator is the same with pi-GAN, we haven't implemented the
+ discriminator.
+ Retrieved from: https://github.com/marcoamonteiro/pi-GAN/blob/master/discriminators/sgdiscriminators.py
+"""
+
 import math
 import torch
 import torch.nn as nn

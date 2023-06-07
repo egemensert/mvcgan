@@ -14,5 +14,20 @@ So far we have trained the model on an A100 GPU using Paperspace Gradient. Trani
 as long as our budget allows.
 
 
-
 Retrieved from https://universome.github.io/assets/projects/epigraf/epigraf.pdf Table 1.
+
+-- version 2 submission --
+
+Following a comprehensive debugging process, we have successfully resumed the computational training for an extensive period of 175,000 iterations. 
+Our experiments have yielded the generation of realistic imagery with dimensions of 256x256 pixels. However, a persistent challenge we encountered is
+that our Frechet Inception Distance (FID) scores did not significantly improve beyond a rating of 130.07 for images at the aforementioned resolution.
+Our preliminary analyses suggest that this limitation may be due to the suboptimal learning rate assigned to the generative model. Specifically, the 
+trend observed in the generator loss, which demonstrated a state of stagnation upon scaling to the 256x256 resolution, is supportive of this hypothesis.
+
+Regrettably, due to budgetary constraints, we were unable to conduct a comprehensive evaluation of alternative learning rates. 
+The cost of conducting the training iterations thus far has approximately amounted to $350. Despite the considerable fiscal investment involved in the 
+training process, we wish to express our sincere appreciation for being selected to undertake this challenge. The experience has provided us with 
+invaluable insights into the intricate process of training state-of-the-art generative models.
+
+We extend our gratitude to the instructor for fostering an environment conducive to rigorous academic exploration and challenge. This endeavor has 
+significantly enhanced our understanding and skills in the domain of machine learning and generative models.
